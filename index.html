@@ -295,7 +295,7 @@
             </span>
           </div>
 
-          <div class="grid grid-cols-3 gap-2" id="paymentButtons">
+          <div class="grid grid-cols-2 gap-2" id="paymentButtons">
             <!-- Filled from PAYMENT_OPTIONS in the script -->
           </div>
 
@@ -404,7 +404,8 @@
     const PAYMENT_OPTIONS = [
       { name: "GCash",    qrImage: "qr-gcash.png",    accountLabel: "GCash · Samantha Clarisse R." },
       { name: "MariBank", qrImage: "qr-maribank.png", accountLabel: "MariBank · Samantha Clarisse R." },
-      { name: "GoTyme",   qrImage: "qr-gotyme.png",   accountLabel: "GoTyme · Samantha Clarisse R." }
+      { name: "GoTyme",   qrImage: "qr-gotyme.png",   accountLabel: "GoTyme · Samantha Clarisse R." },
+      { name: "Cash",     cash: true }   // paid on pickup / delivery / meetup: no QR, no screenshot
     ];
     // ================================================================
 
@@ -734,9 +735,9 @@
         button.type = 'button';
         button.dataset.pay = option.name;
         button.className = 'pay-pill tactile-pill py-2 px-2 rounded-xl border border-[#412e1d]/20 bg-[#f8f3ec] flex items-center justify-center gap-1.5 font-display font-bold text-xs';
-        button.innerHTML = '<i data-lucide="qr-code" class="w-3.5 h-3.5"></i><span></span>';
+        button.innerHTML = '<i data-lucide="' + (option.cash ? 'banknote' : 'qr-code') + '" class="w-3.5 h-3.5"></i><span></span>';
         button.querySelector('span').textContent = option.name;
-        button.addEventListener('click', () => openQrPopup(option));
+        button.addEventListener('click', () => option.cash ? chooseCash(option) : openQrPopup(option));
         container.appendChild(button);
       });
     }
@@ -776,7 +777,10 @@
       });
 
       const qrPill = document.getElementById('qrReadyPill');
-      if (state.hasPaid) {
+      if (state.paymentName === 'Cash') {
+        qrPill.textContent = 'Cash on handover ✓';
+        qrPill.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800';
+      } else if (state.hasPaid) {
         qrPill.textContent = 'Paid via ' + state.paymentName + ' ✓';
         qrPill.className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800';
       } else {
@@ -788,6 +792,17 @@
     function cyclePhoto() {
       state.pulseStrength = 1.2;
       showDeckPhoto((state.photoIdx + 1) % PHOTOS.length);
+    }
+
+    // Cash: no QR popup and no screenshot; they pay when they get the cookies.
+    function chooseCash(option) {
+      state.paymentName = option.name;
+      state.hasPaid = true;
+      state.paymentPhoto = '';
+      document.getElementById('paymentPhotoBox').hidden = true;
+      state.pulseStrength = 1.2;
+      updateUI(false);
+      triggerSpring(document.getElementById('qrReadyPill'), 'animate-pop');
     }
 
     function openQrPopup(option) {
@@ -830,7 +845,7 @@
     function orderAsText(order) {
       const orderLabel = order.orderId ? `Order #${order.orderId} for ${order.bakeDay}: ` : '';
       return `Hi! Euna's Munchies ${orderLabel}${order.quantity} × Scoopable Cookie (${peso(order.total)}). ` +
-        `${order.delivery}: ${order.whereWhen}. Paid via ${order.payment} (screenshot attached). ` +
+        `${order.delivery}: ${order.whereWhen}. ${order.payment === 'Cash' ? 'Cash on handover' : 'Paid via ' + order.payment + ' (screenshot attached)'}. ` +
         `Name: ${order.name} (${order.contact})`;
     }
 
@@ -842,7 +857,7 @@
         ['Order', order.quantity + ' × Scoopable Cookie'],
         ['Total', peso(order.total)],
         [order.delivery, order.whereWhen],
-        ['Payment', order.payment + ' · screenshot attached'],
+        ['Payment', order.payment === 'Cash' ? 'Cash · pay on handover' : order.payment + ' · screenshot attached'],
         ['We\'ll message', order.contact]
       ];
       const box = document.getElementById('receiptSummaryBox');
@@ -1011,8 +1026,8 @@
         if (!order.whereWhen) missing.push({ Pickup: 'pickup time', Delivery: 'delivery address', Meetup: 'meetup place and time' }[order.delivery]);
         if (!order.name) missing.push('name');
         if (!order.contact) missing.push('mobile or Messenger');
-        if (!order.payment || !state.hasPaid) missing.push('payment (tap ' + PAYMENT_OPTIONS.map(option => option.name).join(' or ') + ')');
-        else if (!order.paymentPhoto) missing.push('payment screenshot');
+        if (!order.payment || !state.hasPaid) missing.push('payment (choose one)');
+        else if (order.payment !== 'Cash' && !order.paymentPhoto) missing.push('payment screenshot');
         if (missing.length) {
           errorText.textContent = 'Please fill in: ' + missing.join(', ') + '.';
           return;
