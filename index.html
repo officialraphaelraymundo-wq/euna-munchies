@@ -299,7 +299,14 @@
             <!-- Filled from PAYMENT_OPTIONS in the script -->
           </div>
 
-          <input id="paymentRefInput" type="text" inputmode="numeric" hidden placeholder="Reference no. from your receipt" aria-label="Payment reference number" class="order-field" />
+          <div id="paymentPhotoBox" hidden>
+            <label class="order-field flex items-center gap-2.5 cursor-pointer">
+              <img id="paymentPhotoThumb" alt="Your payment screenshot" class="hidden w-10 h-10 rounded-lg object-cover border border-[#412e1d]/20 shrink-0" />
+              <i id="paymentPhotoIcon" data-lucide="image-plus" class="w-5 h-5 text-amber-800 shrink-0"></i>
+              <span id="paymentPhotoText" class="text-sm text-stone-500">Attach your payment screenshot</span>
+              <input id="paymentPhotoInput" type="file" accept="image/*" class="hidden" />
+            </label>
+          </div>
         </div>
 
         <p id="formErrorText" class="text-[11px] font-semibold text-red-700 leading-snug" role="alert"></p>
@@ -436,6 +443,7 @@
       pulseStrength: 0.0,
       bakeDay: "",        // e.g. "Friday, November 27" (from the WEB ORDERS tab)
       ordersOpen: true,   // set to false when ORDERS OPEN? is NO
+      paymentPhoto: "",   // compressed screenshot as a data URL
       lastOrder: null
     };
 
@@ -815,14 +823,14 @@
         name: document.getElementById('custNameInput').value.trim(),
         contact: document.getElementById('custContactInput').value.trim(),
         payment: state.paymentName,
-        reference: document.getElementById('paymentRefInput').value.trim()
+        paymentPhoto: state.paymentPhoto
       };
     }
 
     function orderAsText(order) {
       const orderLabel = order.orderId ? `Order #${order.orderId} for ${order.bakeDay}: ` : '';
       return `Hi! Euna's Munchies ${orderLabel}${order.quantity} × Scoopable Cookie (${peso(order.total)}). ` +
-        `${order.delivery}: ${order.whereWhen}. Paid via ${order.payment}, ref ${order.reference}. ` +
+        `${order.delivery}: ${order.whereWhen}. Paid via ${order.payment} (screenshot attached). ` +
         `Name: ${order.name} (${order.contact})`;
     }
 
@@ -834,7 +842,7 @@
         ['Order', order.quantity + ' × Scoopable Cookie'],
         ['Total', peso(order.total)],
         [order.delivery, order.whereWhen],
-        ['Payment', order.payment + ' · Ref ' + order.reference],
+        ['Payment', order.payment + ' · screenshot attached'],
         ['We\'ll message', order.contact]
       ];
       const box = document.getElementById('receiptSummaryBox');
@@ -885,6 +893,53 @@
       submitBtn.classList.add('opacity-50');
     }
 
+    // Phone screenshots can be several MB; shrink to max 1280px JPEG before sending.
+    function compressImage(file) {
+      return new Promise((resolve, reject) => {
+        const objectUrl = URL.createObjectURL(file);
+        const image = new Image();
+        image.onload = () => {
+          const scale = Math.min(1, 1280 / Math.max(image.naturalWidth, image.naturalHeight));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(image.naturalWidth * scale);
+          canvas.height = Math.round(image.naturalHeight * scale);
+          const context = canvas.getContext('2d');
+          context.fillStyle = '#ffffff';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(objectUrl);
+          resolve(canvas.toDataURL('image/jpeg', 0.75));
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('Could not read that image'));
+        };
+        image.src = objectUrl;
+      });
+    }
+
+    async function handlePaymentPhoto(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const photoText = document.getElementById('paymentPhotoText');
+      const photoThumb = document.getElementById('paymentPhotoThumb');
+      const photoIcon = document.getElementById('paymentPhotoIcon') || document.querySelector('#paymentPhotoBox svg');
+      photoText.textContent = 'Preparing screenshot…';
+      try {
+        state.paymentPhoto = await compressImage(file);
+        photoThumb.src = state.paymentPhoto;
+        photoThumb.classList.remove('hidden');
+        if (photoIcon) photoIcon.classList.add('hidden');
+        photoText.textContent = 'Screenshot attached ✓ (tap to change)';
+        photoText.className = 'text-sm font-semibold text-emerald-800';
+        document.getElementById('formErrorText').textContent = '';
+      } catch (readError) {
+        state.paymentPhoto = '';
+        photoText.textContent = 'That image did not work. Please try another screenshot.';
+        photoText.className = 'text-sm font-semibold text-red-700';
+      }
+    }
+
     function setStatusBanner(html) {
       document.getElementById('statusBannerText').innerHTML = html;
     }
@@ -900,6 +955,7 @@
 
       renderPaymentButtons();
       loadBakeDay();
+      document.getElementById('paymentPhotoInput').addEventListener('change', handlePaymentPhoto);
       initWebGL2Background();
       document.querySelectorAll('.tilt-card').forEach(attach3DTilt);
       if (window.lucide) window.lucide.createIcons();
@@ -939,9 +995,7 @@
         state.hasPaid = true;
         state.pulseStrength = 1.6;
         document.getElementById('qrPopupOverlay').classList.add('hidden');
-        const refInput = document.getElementById('paymentRefInput');
-        refInput.hidden = false;
-        refInput.focus();
+        document.getElementById('paymentPhotoBox').hidden = false;
         updateUI(false);
         triggerSpring(document.getElementById('qrReadyPill'), 'animate-pop');
       });
@@ -958,13 +1012,17 @@
         if (!order.name) missing.push('name');
         if (!order.contact) missing.push('mobile or Messenger');
         if (!order.payment || !state.hasPaid) missing.push('payment (tap ' + PAYMENT_OPTIONS.map(option => option.name).join(' or ') + ')');
-        else if (!order.reference) missing.push('payment reference number');
+        else if (!order.paymentPhoto) missing.push('payment screenshot');
         if (missing.length) {
           errorText.textContent = 'Please fill in: ' + missing.join(', ') + '.';
           return;
         }
         if (!state.ordersOpen) {
           errorText.textContent = 'Sorry, orders are closed right now. Please check again soon.';
+          return;
+        }
+        if (location.pathname.endsWith('preview.html')) {
+          errorText.textContent = 'Preview page: ordering is turned off here. Everything above checks out.';
           return;
         }
 
@@ -983,7 +1041,9 @@
             order.bakeDay = result.bakeDay;
             state.lastOrder = order;
             showReceipt(order);
-            setStatusBanner('<strong>Order sent!</strong> Please wait for our reply message.');
+            setStatusBanner(result.photoSaved === false
+              ? '<strong>Order sent!</strong> Your screenshot did not upload, so please send it to us in a message.'
+              : '<strong>Order sent!</strong> Please wait for our reply message.');
           } else if (result.closed) {
             state.ordersOpen = false;
             showClosedState();
