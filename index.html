@@ -278,7 +278,7 @@
           </div>
 
           <div class="space-y-1.5">
-            <input id="custLocInput" type="text" placeholder="Preferred pickup date and time" aria-label="Pickup date and time or delivery address" class="order-field" />
+            <input id="custLocInput" type="text" placeholder="Preferred pickup time" aria-label="Pickup time or delivery address" class="order-field" />
             <p id="deliveryFeeNote" hidden class="text-[11px] text-stone-500 leading-snug">Delivery fee is separate. We will tell you the fee in our reply.</p>
             <div class="grid grid-cols-1 gap-1.5">
               <input id="custNameInput" type="text" autocomplete="name" placeholder="Your name" aria-label="Your name" class="order-field" />
@@ -312,7 +312,7 @@
             <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-700"></span>
           </span>
           <p id="statusBannerText" class="text-[11px] font-semibold text-[#412e1d] leading-tight">
-            Wait for reply message for confirmation after submitting.
+            Checking the next bake day…
           </p>
         </div>
 
@@ -420,7 +420,7 @@
     ];
 
     const DELIVERY_MODES = [
-      { name: "Pickup",   hint: "Pick up from us",      placeholder: "Preferred pickup date and time" },
+      { name: "Pickup",   hint: "Pick up from us",      placeholder: "Preferred pickup time" },
       { name: "Delivery", hint: "Delivered to you",     placeholder: "Complete address and landmark" }
     ];
 
@@ -432,7 +432,10 @@
       deliveryIdx: 0,
       paymentName: "",
       hasPaid: false,
-      pulseStrength: 0.0
+      pulseStrength: 0.0,
+      bakeDay: "",        // e.g. "Friday, November 27" (from the WEB ORDERS tab)
+      ordersOpen: true,   // set to false when ORDERS OPEN? is NO
+      lastOrder: null
     };
 
     const orderTotal = () => state.qty * PRICE_PER_PIECE;
@@ -816,13 +819,16 @@
     }
 
     function orderAsText(order) {
-      return `Hi! Euna's Munchies order: ${order.quantity} × Scoopable Cookie (${peso(order.total)}). ` +
+      const orderLabel = order.orderId ? `Order #${order.orderId} for ${order.bakeDay}: ` : '';
+      return `Hi! Euna's Munchies ${orderLabel}${order.quantity} × Scoopable Cookie (${peso(order.total)}). ` +
         `${order.delivery}: ${order.whereWhen}. Paid via ${order.payment}, ref ${order.reference}. ` +
         `Name: ${order.name} (${order.contact})`;
     }
 
     function showReceipt(order) {
       const rows = [
+        ['Order #', order.orderId],
+        ['Bake day', order.bakeDay],
         ['Order', order.quantity + ' × Scoopable Cookie'],
         ['Total', peso(order.total)],
         [order.delivery, order.whereWhen],
@@ -853,10 +859,45 @@
       document.getElementById('submittedOverlay').classList.remove('hidden');
     }
 
+    // Bake day + open/closed switch come from the top of the WEB ORDERS tab.
+    async function loadBakeDay() {
+      if (!ORDER_SCRIPT_URL) return;
+      try {
+        const settings = await fetch(ORDER_SCRIPT_URL).then(response => response.json());
+        state.bakeDay = settings.bakeDay;
+        state.ordersOpen = settings.open;
+        if (settings.open) {
+          setStatusBanner('Next bake day: <strong>' + escapeHtml(settings.bakeDay) + '</strong>. Wait for our reply message to confirm.');
+        } else {
+          showClosedState();
+        }
+      } catch (networkError) {
+        setStatusBanner('Wait for reply message for confirmation after submitting.');
+      }
+    }
+
+    function showClosedState() {
+      setStatusBanner('<strong>Orders are closed for now.</strong> Check back soon for the next bake day.');
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.classList.add('opacity-50');
+    }
+
+    function setStatusBanner(html) {
+      document.getElementById('statusBannerText').innerHTML = html;
+    }
+
+    function escapeHtml(text) {
+      const holder = document.createElement('span');
+      holder.textContent = text;
+      return holder.innerHTML;
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
       if (!ORDER_SCRIPT_URL) document.getElementById('setupBanner').hidden = false;
 
       renderPaymentButtons();
+      loadBakeDay();
       initWebGL2Background();
       document.querySelectorAll('.tilt-card').forEach(attach3DTilt);
       if (window.lucide) window.lucide.createIcons();
@@ -911,7 +952,7 @@
         const order = readOrder();
 
         const missing = [];
-        if (!order.whereWhen) missing.push(order.delivery === 'Delivery' ? 'delivery address' : 'pickup date and time');
+        if (!order.whereWhen) missing.push(order.delivery === 'Delivery' ? 'delivery address' : 'pickup time');
         if (!order.name) missing.push('name');
         if (!order.contact) missing.push('mobile or Messenger');
         if (!order.payment || !state.hasPaid) missing.push('payment (tap GCash or Maya)');
@@ -920,34 +961,45 @@
           errorText.textContent = 'Please fill in: ' + missing.join(', ') + '.';
           return;
         }
+        if (!state.ordersOpen) {
+          errorText.textContent = 'Sorry, orders are closed right now. Please check again soon.';
+          return;
+        }
 
         submitBtn.disabled = true;
         submitBtn.firstElementChild.textContent = 'SENDING…';
         state.pulseStrength = 2.4;
 
         try {
-          if (ORDER_SCRIPT_URL) {
-            await fetch(ORDER_SCRIPT_URL, {
-              method: 'POST',
-              mode: 'no-cors',
-              body: new URLSearchParams(order)
-            });
+          const response = await fetch(ORDER_SCRIPT_URL, {
+            method: 'POST',
+            body: new URLSearchParams(order)
+          });
+          const result = await response.json();
+          if (result.ok) {
+            order.orderId = result.orderId;
+            order.bakeDay = result.bakeDay;
+            state.lastOrder = order;
+            showReceipt(order);
+            setStatusBanner('<strong>Order sent!</strong> Please wait for our reply message.');
+          } else if (result.closed) {
+            state.ordersOpen = false;
+            showClosedState();
+            errorText.textContent = 'Sorry, orders are closed right now. Please check again soon.';
           } else {
-            console.warn('ORDER_SCRIPT_URL is empty: this order was NOT saved.', order);
+            errorText.textContent = 'Your order was not saved. Please try again or message us directly.';
           }
-          showReceipt(order);
-          document.getElementById('statusBannerText').innerHTML = '<strong>Order sent!</strong> Please wait for our reply message.';
         } catch (networkError) {
           errorText.textContent = 'Could not send your order. Check your internet connection and try again.';
         } finally {
-          submitBtn.disabled = false;
+          submitBtn.disabled = !state.ordersOpen;
           submitBtn.firstElementChild.textContent = 'SUBMIT';
         }
       });
 
       document.getElementById('copySlipBtn').addEventListener('click', (event) => {
         const button = event.currentTarget; // keep a reference; currentTarget is null inside setTimeout
-        const text = orderAsText(readOrder());
+        const text = orderAsText(state.lastOrder || readOrder());
         if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
         button.textContent = 'Copied! ✓';
         setTimeout(() => { button.textContent = 'Copy Order'; }, 1500);
