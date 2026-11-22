@@ -835,6 +835,7 @@
       const rows = [
         ['Order #', order.orderId],
         ['Bake day', order.bakeDay],
+        ['Delivery', 'Usually 1–2 days after bake day'],
         ['Order', order.quantity + ' × Scoopable Cookie'],
         ['Total', peso(order.total)],
         [order.delivery, order.whereWhen],
@@ -873,7 +874,7 @@
         state.bakeDay = settings.bakeDay;
         state.ordersOpen = settings.open;
         if (settings.open) {
-          setStatusBanner('Next bake day: <strong>' + escapeHtml(settings.bakeDay) + '</strong>. Wait for our reply message to confirm.');
+          setStatusBanner('Next bake day: <strong>' + escapeHtml(settings.bakeDay) + '</strong>. Delivery is usually 1–2 days after the bake day and may change. Wait for our reply message to confirm.');
         } else {
           showClosedState();
         }
