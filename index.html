@@ -119,7 +119,7 @@
     .segment-track {
       position: relative;
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       background: #e7ddd0;
       border-radius: 14px;
       padding: 3px;
@@ -130,7 +130,7 @@
       top: 3px;
       bottom: 3px;
       left: 3px;
-      width: calc((100% - 6px) / 2);
+      width: calc((100% - 6px) / 3);
       background: #412e1d;
       border-radius: 11px;
       box-shadow: 0 2px 0 #1f140c;
@@ -275,10 +275,14 @@
               <i data-lucide="bike" class="w-3.5 h-3.5"></i>
               <span>Delivery</span>
             </button>
+            <button type="button" data-del="2" data-mode="Meetup" class="del-seg-btn segment-btn py-1.5 text-xs font-display font-bold text-[#412e1d] flex items-center justify-center gap-1">
+              <i data-lucide="map-pin" class="w-3.5 h-3.5"></i>
+              <span>Meetup</span>
+            </button>
           </div>
 
           <div class="space-y-1.5">
-            <input id="custLocInput" type="text" placeholder="Preferred pickup time" aria-label="Pickup time or delivery address" class="order-field" />
+            <input id="custLocInput" type="text" placeholder="Preferred pickup time" aria-label="Pickup time, delivery address, or meetup place" class="order-field" />
             <p id="deliveryFeeNote" hidden class="text-[11px] text-stone-500 leading-snug">Delivery fee is separate. We will tell you the fee in our reply.</p>
             <div class="grid grid-cols-1 gap-1.5">
               <input id="custNameInput" type="text" autocomplete="name" placeholder="Your name" aria-label="Your name" class="order-field" />
@@ -327,7 +331,7 @@
           <div class="modal-spring bg-[#fffdf9] w-full rounded-3xl p-4 border-4 border-[#412e1d] shadow-2xl text-center space-y-3">
             <div class="flex items-center justify-between">
               <span id="qrPopupMethodBadge" class="px-2.5 py-0.5 rounded-full bg-amber-200 text-[#412e1d] font-display font-bold text-xs">
-                GCash QR
+                Payment QR
               </span>
               <button id="closeQrBtn" type="button" aria-label="Close" class="tactile-pill w-7 h-7 rounded-full bg-stone-200 text-[#412e1d] font-bold text-xs flex items-center justify-center">
                 ✕
@@ -396,8 +400,8 @@
 
     // Put the real QR image files in the same folder as this page.
     const PAYMENT_OPTIONS = [
-      { name: "GCash", qrImage: "qr-gcash.png", accountLabel: "GCash · Euna's Munchies" },
-      { name: "Maya",  qrImage: "qr-maya.png",  accountLabel: "Maya · Euna's Munchies" }
+      { name: "MariBank", qrImage: "qr-maribank.png", accountLabel: "MariBank · Euna's Munchies" },
+      { name: "GoTyme",   qrImage: "qr-gotyme.png",   accountLabel: "GoTyme · Euna's Munchies" }
     ];
     // ================================================================
 
@@ -421,7 +425,8 @@
 
     const DELIVERY_MODES = [
       { name: "Pickup",   hint: "Pick up from us",      placeholder: "Preferred pickup time" },
-      { name: "Delivery", hint: "Delivered to you",     placeholder: "Complete address and landmark" }
+      { name: "Delivery", hint: "Delivered to you",     placeholder: "Complete address and landmark" },
+      { name: "Meetup",   hint: "Meet up with us",      placeholder: "Preferred meetup place and time" }
     ];
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -952,10 +957,10 @@
         const order = readOrder();
 
         const missing = [];
-        if (!order.whereWhen) missing.push(order.delivery === 'Delivery' ? 'delivery address' : 'pickup time');
+        if (!order.whereWhen) missing.push({ Pickup: 'pickup time', Delivery: 'delivery address', Meetup: 'meetup place and time' }[order.delivery]);
         if (!order.name) missing.push('name');
         if (!order.contact) missing.push('mobile or Messenger');
-        if (!order.payment || !state.hasPaid) missing.push('payment (tap GCash or Maya)');
+        if (!order.payment || !state.hasPaid) missing.push('payment (tap ' + PAYMENT_OPTIONS.map(option => option.name).join(' or ') + ')');
         else if (!order.reference) missing.push('payment reference number');
         if (missing.length) {
           errorText.textContent = 'Please fill in: ' + missing.join(', ') + '.';
